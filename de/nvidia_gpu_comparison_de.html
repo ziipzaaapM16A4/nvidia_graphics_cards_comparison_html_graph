@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NVIDIA Grafikkarten Dynamic Comparison</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #0c0c0c;
+            color: #ffffff;
+            margin: 0;
+            padding: 30px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 {
+            color: #76b900;
+            margin-bottom: 5px;
+        }
+        .subtitle {
+            color: #aaaaaa;
+            margin-bottom: 25px;
+            font-size: 14px;
+        }
+        .upload-section {
+            background-color: #1a1a1a;
+            border: 2px dashed #76b900;
+            padding: 20px;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 1000px;
+            text-align: center;
+            margin-bottom: 25px;
+            transition: 0.3s;
+        }
+        .upload-section:hover {
+            background-color: #222222;
+        }
+        .upload-section input[type="file"] {
+            display: none;
+        }
+        .custom-file-upload {
+            display: inline-block;
+            background-color: #76b900;
+            color: black;
+            font-weight: bold;
+            padding: 10px 20px;
+            cursor: pointer;
+            border-radius: 5px;
+            margin-top: 10px;
+            transition: 0.2s;
+        }
+        .custom-file-upload:hover {
+            background-color: #8cd600;
+        }
+        .controls-container {
+            display: none; /* Hidden until file loaded */
+            flex-direction: column;
+            gap: 15px;
+            width: 90%;
+            max-width: 1000px;
+            margin-bottom: 25px;
+            background-color: #141414;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+        .controls-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+        }
+        .controls-label {
+            font-weight: bold;
+            color: #76b900;
+            min-width: 140px;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        button {
+            background-color: #222;
+            color: white;
+            border: 1px solid #444;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-size: 14px;
+            border-radius: 4px;
+            transition: 0.2s;
+        }
+        button:hover {
+            border-color: #76b900;
+            background-color: #1a2410;
+        }
+        button.active {
+            background-color: #76b900;
+            color: #000;
+            font-weight: bold;
+            border-color: #76b900;
+        }
+        .chart-container {
+            width: 90%;
+            max-width: 1000px;
+            background-color: #141414;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 6px 16px rgba(0,0,0,0.7);
+            display: none; /* Hidden until file loaded */
+        }
+        .status-msg {
+            color: #ffcc00;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        .status-success {
+            color: #33cc33;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>NVIDIA GPU Leistungsvergleich (Dynamisch)</h1>
+    <div class="subtitle">Lade deine strukturierte JSON-Datei hoch, um die Achsen und Leistungswerte flexibel zu vergleichen.</div>
+
+    <div class="upload-section" id="dropZone">
+        <p style="margin: 0 0 10px 0;">Schritt 1: Wähle die Datei <strong>nvidia_gpu_data.json</strong> aus</p>
+        <label for="fileInput" class="custom-file-upload">
+            Datei auswählen
+        </label>
+        <input type="file" id="fileInput" accept=".json">
+        <div id="status" class="status-msg">Keine Datei geladen. Bitte die erstellte .json-Datei hochladen.</div>
+    </div>
+
+    <div class="controls-container" id="chartControls">
+        <div class="controls-row">
+            <div class="controls-label">Diagramm-Typ:</div>
+            <button id="btnVarA" class="active" onclick="switchVariant('A')">Variante A (X = Generation)</button>
+            <button id="btnVarB" onclick="switchVariant('B')">Variante B (X = Modell-Tier)</button>
+        </div>
+        <div class="controls-row" style="margin-top: 5px; border-top: 1px solid #222; padding-top: 12px;">
+            <div class="controls-label">Y-Achse (Wert):</div>
+            <button id="btnCuda" class="active" onclick="switchMetric('cuda_cores')">CUDA-Kerne</button>
+            <button id="btnBoost" onclick="switchMetric('boost_clock')">Boost-Takt (GHz)</button>
+            <button id="btnBase" onclick="switchMetric('base_clock')">Basis-Takt (GHz)</button>
+            <button id="btnVram" onclick="switchMetric('vram_gb')">Speichergröße (GB)</button>
+            <button id="btnBus" onclick="switchMetric('bus_width')">Schnittstelle (Bit)</button>
+        </div>
+    </div>
+
+    <div class="chart-container" id="chartBox">
+        <canvas id="gpuChart"></canvas>
+    </div>
+
+    <script>
+        let rawGpuData = [];
+        let gpuChart = null;
+        let currentVariant = 'A';
+        let currentMetric = 'cuda_cores';
+
+        // Metadata definitions for metrics configuration
+        const metricConfig = {
+            cuda_cores: { label: 'NVIDIA CUDA®-Recheneinheiten', unit: ' Cores' },
+            boost_clock: { label: 'Boost-Taktung (GHz)', unit: ' GHz' },
+            base_clock: { label: 'Basistaktung (GHz)', unit: ' GHz' },
+            vram_gb: { label: 'Standard-Speicherkonfiguration (nur GB)', unit: ' GB' },
+            bus_width: { label: 'Breite der Speicherschnittstelle', unit: ' Bit' }
+        };
+
+        const fileInput = document.getElementById('fileInput');
+        const statusDiv = document.getElementById('status');
+        const controlsContainer = document.getElementById('chartControls');
+        const chartBoxDiv = document.getElementById('chartBox');
+
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                try {
+                    const parsedJson = JSON.parse(evt.target.result);
+                    rawGpuData = normalizeGpuData(parsedJson);
+                    statusDiv.innerHTML = "✓ Datei '" + file.name + "' erfolgreich geladen (" + rawGpuData.length + " Grafikkarten erkannt)!";
+                    statusDiv.className = "status-msg status-success";
+
+                    // Show container and charts
+                    controlsContainer.style.display = 'flex';
+                    chartBoxDiv.style.display = 'block';
+
+                    renderChart();
+                } catch (error) {
+                    statusDiv.innerHTML = "❌ Fehler beim Lesen der Datei. Ist es ein gültiges JSON-Format?";
+                    statusDiv.className = "status-msg";
+                    console.error(error);
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        function normalizeGpuData(data) {
+            if (Array.isArray(data)) return data;
+            const result = [];
+
+            const tierFromModel = (model) => {
+                let base = null;
+                if (/90\b/i.test(model) || /2080 Ti/i.test(model) || /1080 Ti/i.test(model)) base = "xx90";
+                else if (/80\b/i.test(model)) base = "xx80";
+                else if (/70\b/i.test(model)) base = "xx70";
+                else if (/60\b/i.test(model) || /1660/i.test(model)) base = "xx60";
+                else if (/50\b/i.test(model) || /30\b/i.test(model) || /1650/i.test(model) || /1630/i.test(model) || /1050/i.test(model)) base = "xx50";
+
+                if (!base) return null;
+
+                let suffix = "";
+                if (/ti\s+super/i.test(model)) suffix = " Ti Super";
+                else if (/ti/i.test(model)) {
+                    if (/1080 Ti/i.test(model) || /2080 Ti/i.test(model)) suffix = "";
+                    else suffix = " Ti";
+                }
+                else if (/super/i.test(model)) suffix = " Super";
+
+                return base + suffix;
+            };
+
+            // String parsers helper functions
+            const parseNumber = (val) => parseInt(String(val || "").replace(/[^\d]/g, ""), 10) || null;
+
+            const parseFloatValue = (val) => {
+                if (!val) return null;
+                let match = String(val).replace(',', '.').match(/(\d+(\.\d+)?)/);
+                return match ? parseFloat(match[1]) : null;
+            };
+
+            const parseVram = (val) => {
+                if (!val) return null;
+                let match = String(val).match(/(\d+)\s*GB/i);
+                return match ? parseInt(match[1], 10) : null;
+            };
+
+            for (const generation of (data.Generationen || [])) {
+                for (const [model, specs] of Object.entries(generation.Graphicscards || {})) {
+
+                    const cuda = parseNumber(specs["NVIDIA CUDA®-Recheneinheiten"]);
+
+                    // --- AUTOMATISCHE ÜBERSETZUNG: MHz in GHz ---
+
+                    // Boost-Takt
+                    let boost = parseFloatValue(specs["Boost-Taktung (GHz)"]);
+                    if (boost === null && specs["Boost-Taktung (MHz)"]) {
+                        boost = parseFloatValue(specs["Boost-Taktung (MHz)"]) / 1000.0;
+                    }
+
+                    // Basis-Takt
+                    let base = parseFloatValue(specs["Basistaktung (GHz)"]);
+                    if (base === null && specs["Basistaktung (MHz)"]) {
+                        base = parseFloatValue(specs["Basistaktung (MHz)"]) / 1000.0;
+                    }
+
+                    const vram = parseVram(specs["Standard-Speicherkonfiguration"]);
+                    const bus = parseNumber(specs["Breite der Speicherschnittstelle"]);
+
+                    result.push({
+                        generation: generation.Generation,
+                        model,
+                        tier: tierFromModel(model),
+                        cuda_cores: cuda,
+                        boost_clock: boost,
+                        base_clock: base,
+                        vram_gb: vram,
+                        bus_width: bus
+                    });
+                }
+            }
+            return result;
+        }
+
+        function processData(jsonData, metric) {
+            // Dynamisches Extrahieren der Generationen aus dem JSON
+            const generations = [...new Set(jsonData.map(item => item.generation))].sort();
+
+            const allPossibleTiers = [
+                'xx50', 'xx50 Ti', 'xx60', 'xx60 Super', 'xx60 Ti',
+                'xx70', 'xx70 Super', 'xx70 Ti', 'xx70 Ti Super',
+                'xx80', 'xx80 Super', 'xx80 Ti', 'xx90', 'xx90 Ti'
+            ];
+
+            // Nur die Tiers nutzen, die auch wirklich im Datensatz vorkommen
+            const activeTiers = allPossibleTiers.filter(tier => jsonData.some(d => d.tier === tier));
+
+            // Farb-Mapping bleibt bestehen
+            const tierColors = {
+                'xx90 Ti': '#a00000', 'xx90': '#ff3333', 'xx80 Ti': '#cc5200', 'xx80 Super': '#ff751a',
+                'xx80': '#ff9933', 'xx70 Ti Super': '#b38f00', 'xx70 Ti': '#d4af37', 'xx70 Super': '#ffcc00',
+                'xx70': '#ffe066', 'xx60 Ti': '#1f7a1f', 'xx60 Super': '#29a329', 'xx60': '#33cc33',
+                'xx50 Ti': '#1a75ff', 'xx50': '#3399ff'
+            };
+
+            const datasetsA = activeTiers.map(tier => {
+                const data = generations.map(gen => {
+                    const matches = jsonData.filter(d => d.generation === gen && d.tier === tier && d[metric] !== null);
+                    if (matches.length === 0) return null;
+                    return Math.max(...matches.map(m => m[metric]));
+                });
+                return {
+                    label: tier,
+                    data: data,
+                    borderColor: tierColors[tier] || '#ffffff',
+                    backgroundColor: tierColors[tier] || '#ffffff',
+                    tension: 0.25,
+                    spanGaps: true,
+                    pointRadius: 5
+                };
+            });
+
+            // Generation-Farben basierend auf der gefundenen Menge dynamisch zuweisen
+            const datasetsB = generations.map((gen, index) => {
+                const colors = ['#00cc00', '#99ff33', '#ffee00', '#ffaa00', '#ff6600', '#ff0000', '#ff00ff'];
+                const data = activeTiers.map(tier => {
+                    const matches = jsonData.filter(d => d.generation === gen && d.tier === tier && d[metric] !== null);
+                    if (matches.length === 0) return null;
+                    return Math.max(...matches.map(m => m[metric]));
+                });
+                return {
+                    label: gen,
+                    data: data,
+                    borderColor: colors[index % colors.length],
+                    backgroundColor: colors[index % colors.length],
+                    tension: 0.25,
+                    spanGaps: true,
+                    pointRadius: 5
+                };
+            });
+
+            return {
+                variantA: { labels: generations, datasets: datasetsA },
+                variantB: { labels: activeTiers, datasets: datasetsB }
+            };
+        }
+
+        function renderChart() {
+            if (rawGpuData.length === 0) return;
+
+            const chartData = processData(rawGpuData, currentMetric);
+            const ctx = document.getElementById('gpuChart').getContext('2d');
+
+            if (gpuChart) {
+                gpuChart.destroy();
+            }
+
+            const activeData = currentVariant === 'A' ? chartData.variantA : chartData.variantB;
+            const xTitle = currentVariant === 'A' ? 'NVIDIA Grafikkarten Generation' : 'Modell-Klasse (Tier)';
+            const yTitle = metricConfig[currentMetric].label;
+            const unit = metricConfig[currentMetric].unit;
+
+            gpuChart = new Chart(ctx, {
+                type: 'line',
+                data: activeData,
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { labels: { color: '#ffffff', font: { size: 12 } } },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function(context) {
+                                    let val = context.parsed.y;
+                                    return context.dataset.label + ': ' + val.toLocaleString('de-DE') + unit;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: { display: true, text: xTitle, color: '#aaaaaa', font: { size: 14 } },
+                            ticks: { color: '#cccccc' },
+                            grid: { color: '#252525' }
+                        },
+                        y: {
+                            title: { display: true, text: yTitle, color: '#aaaaaa', font: { size: 14 } },
+                            ticks: { color: '#cccccc' },
+                            grid: { color: '#252525' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function switchVariant(variant) {
+            currentVariant = variant;
+            document.getElementById('btnVarA').classList.toggle('active', variant === 'A');
+            document.getElementById('btnVarB').classList.toggle('active', variant === 'B');
+            renderChart();
+        }
+
+        function switchMetric(metric) {
+            currentMetric = metric;
+            const metricButtons = ['btnCuda', 'btnBoost', 'btnBase', 'btnVram', 'btnBus'];
+            const activeId = metric === 'cuda_cores' ? 'btnCuda' :
+                             metric === 'boost_clock' ? 'btnBoost' :
+                             metric === 'base_clock' ? 'btnBase' :
+                             metric === 'vram_gb' ? 'btnVram' : 'btnBus';
+
+            metricButtons.forEach(id => {
+                document.getElementById(id).classList.toggle('active', id === activeId);
+            });
+            renderChart();
+        }
+    </script>
+</body>
+</html>
