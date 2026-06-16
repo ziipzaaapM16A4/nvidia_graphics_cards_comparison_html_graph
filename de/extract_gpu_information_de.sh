@@ -8,7 +8,7 @@ import sys, json, re, html
 import urllib.request
 
 url = "https://www.nvidia.com/de-de/geforce/graphics-cards/compare/?section=compare-specs"
-output_path = "nvidia_gpu_data_parsed.json"
+output_path = "nvidia_gpu_data_parsed_de.json"
 
 # EXPLIZITE AUSNAHMELISTE: Diese Felder werden NIEMALS aufgespalten
 EXCEPTION_KEYS = [

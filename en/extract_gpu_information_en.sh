@@ -1,6 +1,6 @@
 #!/bin/bash
 
-OUTPUT_FILE="nvidia_gpu_data_parsed.json"
+OUTPUT_FILE="nvidia_gpu_data_parsed_en.json"
 
 # We pass the execution to Python to handle logs and the exception list
 python3 -c '
@@ -8,7 +8,7 @@ import sys, json, re, html
 import urllib.request
 
 url = "https://www.nvidia.com/en-us/geforce/graphics-cards/compare/?section=compare-specs"
-output_path = "nvidia_gpu_data_parsed.json"
+output_path = "nvidia_gpu_data_parsed_en.json"
 
 # EXPLICIT EXCEPTION LIST: These fields will NEVER be split
 EXCEPTION_KEYS = [
